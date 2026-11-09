@@ -32,6 +32,7 @@ public class MusicPlayer : MonoBehaviour
     private Vector2 feedbackStartPos;
     private Vector2 backgroundStartPos;
     private bool won = false;
+    private bool lost = false;
 
     public float CurrentPlayTime => playTimes[timeIndex];
     public float MaxPlayTime => playTimes[playTimes.Length - 1];
@@ -54,6 +55,8 @@ public class MusicPlayer : MonoBehaviour
 
     public void PlaySnippet()
     {
+        if (won || lost) return; // nie pozwól odtwarzać po wygranej lub przegranej
+
         if (playRoutine != null)
         {
             StopCoroutine(playRoutine);
@@ -74,12 +77,43 @@ public class MusicPlayer : MonoBehaviour
         }
         audioSource.Stop();
         UpdateProgress(0f);
+
+        // NOWE: Gdy czas snippetu dobiegnie końca (niezależnie czy gracz próbował zgadywać, czy tylko odsłuchiwał):
+        if (!won)
+        {
+            // Sprawdzamy czy to był przedostatni krok -> ostrzegamy przed ostatnią szansą
+            if (timeIndex == playTimes.Length - 2)
+            {
+                timeIndex++;
+                SetupBars();
+                UpdateProgress(0f);
+                ShowFeedback("OSTRZEŻENIE! To Twoja OSTATNIA szansa! Po tym czasie gra pokaże odpowiedź.", wrongColor, false);
+                ShakeBackground();
+            }
+            // Jeśli to był już sam koniec (ostatni indeks) i czas miniął -> PRZEGRANA
+            else if (timeIndex >= playTimes.Length - 1)
+            {
+                lost = true;
+                ShowFeedback("KONIEC CZASU! Przegrałeś. Tytuł: " + correctAnswer, wrongColor, false);
+                if (guessInputField != null) guessInputField.interactable = false;
+            }
+            // Zwykłe przejście na kolejny próg czasowy
+            else
+            {
+                timeIndex++;
+                SetupBars();
+                UpdateProgress(0f);
+                ShowFeedback("Czas minął! Odblokowano " + CurrentPlayTime + " sek.", wrongColor, false);
+                ShakeBackground();
+            }
+        }
+
         playRoutine = null;
     }
 
     public void CheckAnswer()
     {
-        if (won) return; // po wygranej nie można już zgadywać
+        if (won || lost) return; // po wygranej lub przegranej nie można już zgadywać
 
         string playerGuess = guessInputField.text.ToLower().Trim();
         string actualAnswer = correctAnswer.ToLower().Trim();
@@ -91,22 +125,35 @@ public class MusicPlayer : MonoBehaviour
         }
         else
         {
-            string msg;
-            if (timeIndex < playTimes.Length - 1)
+            // Jeśli gracz wpisuje błędną odpowiedź w trakcie trwania progu (zanim minie czas)
+            if (timeIndex == playTimes.Length - 2)
             {
+                // Jeśli to był przedostatni próg, po błędzie przechodzimy do ostatniego z ostrzeżeniem
                 timeIndex++;
-                msg = "ŹLE! Odblokowano " + CurrentPlayTime + " sek.";
+                guessInputField.text = "";
+                SetupBars();
+                UpdateProgress(0f);
+                ShowFeedback("ŹLE! OSTRZEŻENIE: To Twoja OSTATNIA szansa!", wrongColor, false);
+                ShakeBackground();
+            }
+            else if (timeIndex >= playTimes.Length - 1)
+            {
+                // Błąd na ostatnim progu oznacza natychmiastową przegraną i pokazanie odpowiedzi
+                lost = true;
+                guessInputField.text = "";
+                ShowFeedback("ŹLE! Przegrałeś. Tytuł: " + correctAnswer, wrongColor, false);
+                if (guessInputField != null) guessInputField.interactable = false;
+                ShakeBackground();
             }
             else
             {
-                msg = "ŹLE! Maksymalny czas już odblokowany.";
+                timeIndex++;
+                guessInputField.text = "";
+                SetupBars();
+                UpdateProgress(0f);
+                ShowFeedback("ŹLE! Odblokowano " + CurrentPlayTime + " sek.", wrongColor, false);
+                ShakeBackground();
             }
-
-            guessInputField.text = "";
-            SetupBars();
-            UpdateProgress(0f);
-            ShowFeedback(msg, wrongColor, false);
-            ShakeBackground();   // NOWE: trzęsące się tło
         }
     }
 
@@ -122,8 +169,8 @@ public class MusicPlayer : MonoBehaviour
     {
         RectTransform rt = feedbackText.rectTransform;
         feedbackText.text = message;
-        feedbackText.color = color;   // najpierw kolor...
-        feedbackText.alpha = 1f;      // ...potem alfa
+        feedbackText.color = color;   
+        feedbackText.alpha = 1f;      
         rt.anchoredPosition = feedbackStartPos;
         rt.localScale = Vector3.one;
 
@@ -131,7 +178,6 @@ public class MusicPlayer : MonoBehaviour
 
         if (correct)
         {
-            // "Wyskok" z odbiciem
             float t = 0f, duration = 0.45f;
             while (t < duration)
             {
@@ -141,11 +187,9 @@ public class MusicPlayer : MonoBehaviour
                 yield return null;
             }
             rt.localScale = Vector3.one;
-            // tekst zostaje na ekranie
         }
         else
         {
-            // Trzęsienie tekstu
             float t = 0f, duration = 0.4f;
             while (t < duration)
             {
@@ -157,16 +201,19 @@ public class MusicPlayer : MonoBehaviour
             }
             rt.anchoredPosition = feedbackStartPos;
 
-            // Chwila czytania i zanikanie
-            yield return new WaitForSeconds(1.5f);
-            float fade = 0.5f; t = 0f;
-            while (t < fade)
+            // Jeśli to ostateczna przegrana, tekst zostaje dłużej / nie znika tak szybko
+            if (!lost)
             {
-                t += Time.deltaTime;
-                feedbackText.alpha = 1f - Mathf.Clamp01(t / fade);
-                yield return null;
+                yield return new WaitForSeconds(1.5f);
+                float fade = 0.5f; t = 0f;
+                while (t < fade)
+                {
+                    t += Time.deltaTime;
+                    feedbackText.alpha = 1f - Mathf.Clamp01(t / fade);
+                    yield return null;
+                }
+                feedbackText.alpha = 0f;
             }
-            feedbackText.alpha = 0f;
         }
         feedbackRoutine = null;
     }
@@ -185,7 +232,7 @@ public class MusicPlayer : MonoBehaviour
         {
             t += Time.deltaTime;
             float k = t / duration;
-            float fade = 1f - k; // trzęsienie słabnie z czasem
+            float fade = 1f - k; 
             float x = Mathf.Sin(k * 45f) * backgroundShakeStrength * fade;
             float y = Mathf.Cos(k * 38f) * backgroundShakeStrength * 0.6f * fade;
             backgroundImage.anchoredPosition = backgroundStartPos + new Vector2(x, y);
