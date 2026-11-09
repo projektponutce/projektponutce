@@ -573,7 +573,7 @@ MonoBehaviour:
   m_CaretColor: {r: 0.19607843, g: 0.19607843, b: 0.19607843, a: 1}
   m_CustomCaretColor: 0
   m_SelectionColor: {r: 0.65882355, g: 0.80784315, b: 1, a: 0.7529412}
-  m_Text: "Tytu\u0142 piosenki...\n"
+  m_Text: 
   m_CaretBlinkRate: 0.85
   m_CaretWidth: 1
   m_ReadOnly: 0
@@ -1290,7 +1290,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Tytu\u0142 piosenki...\n\u200B"
+  m_text: "\u200B"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -1464,7 +1464,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 857428441}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f4688fdb7df04437aeb418b961361dc5, type: 3}
   m_Name: 
@@ -1477,7 +1477,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Enter text...
+  m_text: Tytu piosenki...
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -2024,7 +2024,9 @@ MonoBehaviour:
   audioSource: {fileID: 1551392230}
   guessInputField: {fileID: 257838343}
   feedbackText: {fileID: 86836899}
-  correctAnswer: Mami
+  userId: 6966374723
+  targetPlaylistName: gra
+  loadingText: {fileID: 0}
   playbackBar: {fileID: 1919369140}
   unlockedBar: {fileID: 393220204}
   timeBarLabel: {fileID: 0}
@@ -2033,6 +2035,7 @@ MonoBehaviour:
   wrongColor: {r: 0.95, g: 0.3, b: 0.3, a: 1}
   backgroundImage: {fileID: 1790924075}
   backgroundShakeStrength: 30
+  correctAnswer: Mami
 --- !u!1 &1619589597
 GameObject:
   m_ObjectHideFlags: 0
