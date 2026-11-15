@@ -1,4 +1,0 @@
-repository "dung2/PoNutce@7972228145652@cloud"
-  path "/"
-    br "/main"
-    co "/main"
