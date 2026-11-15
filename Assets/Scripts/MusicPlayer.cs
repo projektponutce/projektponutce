@@ -39,9 +39,9 @@ public class DeezerTrack
 {
     public long id;
     public string title;
-    public string preview;
+    public string preview; 
     public DeezerArtist artist;
-    public DeezerAlbum album;
+    public DeezerAlbum album; 
 }
 
 [System.Serializable]
@@ -53,7 +53,7 @@ public class DeezerArtist
 [System.Serializable]
 public class DeezerAlbum
 {
-    public string cover_medium;
+    public string cover_medium; 
 }
 
 public class MusicPlayer : MonoBehaviour
@@ -61,10 +61,10 @@ public class MusicPlayer : MonoBehaviour
     public AudioSource audioSource;
     public TMP_InputField guessInputField;
     public TMP_Text feedbackText;
-
+    
     [Header("Deezer User & Playlist Settings")]
-    public string userId = "TUTAJ_WPISZ_SWOJ_USER_ID";
-    public string targetPlaylistName = "Moja Playlista";
+    public string userId = "TUTAJ_WPISZ_SWOJ_USER_ID"; 
+    public string targetPlaylistName = "Moja Playlista"; 
     public TMP_Text loadingText;
 
     [Header("Okładka Albumu")]
@@ -75,23 +75,18 @@ public class MusicPlayer : MonoBehaviour
     public TMP_Text streakText;
     public TMP_Text highScoreText;
 
-    [Header("Audio SFX")]
-    public AudioSource sfxSource;
-    public AudioClip winSound;
-    public AudioClip loseSound;
-
     [Header("Opcjonalne - paski i napis")]
     public Slider playbackBar;
     public Slider unlockedBar;
     public TMP_Text timeBarLabel;
 
     [Header("Opcjonalne - efekty odpowiedzi")]
-    public Image flashOverlay;
-    public Color correctColor = new Color(0.24f, 0.86f, 0.52f);
-    public Color wrongColor = new Color(0.95f, 0.30f, 0.30f);
+    public Image flashOverlay;   
+    public Color correctColor = new Color(0.24f, 0.86f, 0.52f); 
+    public Color wrongColor = new Color(0.95f, 0.30f, 0.30f);   
 
     [Header("Opcjonalne - trzęsące się tło")]
-    public RectTransform backgroundImage;
+    public RectTransform backgroundImage;       
     public float backgroundShakeStrength = 20f;
 
     private readonly float[] playTimes = { 3f, 5f, 10f, 15f, 30f };
@@ -193,7 +188,7 @@ public class MusicPlayer : MonoBehaviour
                 rawSongTitle = Regex.Replace(randomTrack.title, @"\s*\(.*?\)", "").Trim();
 
                 correctAnswer = $"{rawArtistName} - {rawSongTitle}";
-
+                
                 if (randomTrack.album != null && !string.IsNullOrEmpty(randomTrack.album.cover_medium))
                     StartCoroutine(DownloadAndSetCover(randomTrack.album.cover_medium));
 
@@ -213,7 +208,7 @@ public class MusicPlayer : MonoBehaviour
                 if (albumCover != null)
                 {
                     albumCover.texture = tex;
-                    albumCover.color = Color.black;
+                    albumCover.color = Color.black; 
                     albumCover.gameObject.SetActive(true);
                 }
             }
@@ -230,7 +225,7 @@ public class MusicPlayer : MonoBehaviour
         float t = 0f;
         while (t < 1f)
         {
-            t += Time.deltaTime * 2f;
+            t += Time.deltaTime * 2f; 
             albumCover.color = Color.Lerp(Color.black, Color.white, t);
             yield return null;
         }
@@ -255,10 +250,10 @@ public class MusicPlayer : MonoBehaviour
 
     public void CheckAnswer()
     {
-        if (!isLoaded || won || lost) return;
+        if (!isLoaded || won || lost) return; 
 
         string playerGuess = RemoveDiacritics(guessInputField.text).ToLower().Trim();
-
+        
         string cleanArtist = RemoveDiacritics(rawArtistName).ToLower().Trim();
         string cleanTitle = RemoveDiacritics(rawSongTitle).ToLower().Trim();
         string fullMatch = $"{cleanArtist} {cleanTitle}";
@@ -277,20 +272,18 @@ public class MusicPlayer : MonoBehaviour
         {
             won = true;
 
-            if (sfxSource != null && winSound != null) sfxSource.PlayOneShot(winSound);
-
             int basePoints = 0;
-            if (timeIndex == 0) basePoints = 1000;
-            else if (timeIndex == 1) basePoints = 800;
-            else if (timeIndex == 2) basePoints = 600;
-            else if (timeIndex == 3) basePoints = 400;
-            else basePoints = 200;
+            if (timeIndex == 0) basePoints = 1000;      
+            else if (timeIndex == 1) basePoints = 800;  
+            else if (timeIndex == 2) basePoints = 600;  
+            else if (timeIndex == 3) basePoints = 400;  
+            else basePoints = 200;                      
 
             int streakBonus = currentStreak * 100;
             int pointsEarned = basePoints + streakBonus;
 
             currentScore += pointsEarned;
-            currentStreak++;
+            currentStreak++; 
 
             if (currentScore > highScore)
             {
@@ -301,14 +294,12 @@ public class MusicPlayer : MonoBehaviour
 
             UpdateScoreUI();
             ShowFeedback($"WYGRANA! +{pointsEarned} pkt! To: {correctAnswer}", correctColor, true);
-            RevealCover();
+            RevealCover(); 
         }
         else
         {
-            if (sfxSource != null && loseSound != null) sfxSource.PlayOneShot(loseSound);
-
             currentStreak = 0;
-            currentScore = 0;
+            currentScore = 0; 
             UpdateScoreUI();
 
             if (timeIndex == playTimes.Length - 2)
@@ -327,7 +318,7 @@ public class MusicPlayer : MonoBehaviour
                 ShowFeedback("ŹLE! Przegrałeś. Tytuł: " + correctAnswer, wrongColor, false);
                 if (guessInputField != null) guessInputField.interactable = false;
                 ShakeBackground();
-                RevealCover();
+                RevealCover(); 
             }
             else
             {
@@ -348,8 +339,7 @@ public class MusicPlayer : MonoBehaviour
         if (highScoreText != null) highScoreText.text = $"Rekord: {highScore}";
     }
 
-    private int GetLevenshteinDistance(string s, string t)
-    {
+    private int GetLevenshteinDistance(string s, string t) {
         int n = s.Length;
         int m = t.Length;
         int[,] d = new int[n + 1, m + 1];
@@ -357,10 +347,8 @@ public class MusicPlayer : MonoBehaviour
         if (m == 0) return n;
         for (int i = 0; i <= n; d[i, 0] = i++) { }
         for (int j = 0; j <= m; d[0, j] = j++) { }
-        for (int i = 1; i <= n; i++)
-        {
-            for (int j = 1; j <= m; j++)
-            {
+        for (int i = 1; i <= n; i++) {
+            for (int j = 1; j <= m; j++) {
                 int cost = (t[j - 1] == s[i - 1]) ? 0 : 1;
                 d[i, j] = Mathf.Min(Mathf.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + cost);
             }
@@ -368,16 +356,13 @@ public class MusicPlayer : MonoBehaviour
         return d[n, m];
     }
 
-    private string RemoveDiacritics(string text)
-    {
+    private string RemoveDiacritics(string text) {
         if (string.IsNullOrEmpty(text)) return text;
         var normalizedString = text.Normalize(NormalizationForm.FormD);
         var stringBuilder = new StringBuilder();
-        foreach (var c in normalizedString)
-        {
+        foreach (var c in normalizedString) {
             var unicodeCategory = CharUnicodeInfo.GetUnicodeCategory(c);
-            if (unicodeCategory != UnicodeCategory.NonSpacingMark)
-            {
+            if (unicodeCategory != UnicodeCategory.NonSpacingMark) {
                 stringBuilder.Append(c);
             }
         }
@@ -386,7 +371,7 @@ public class MusicPlayer : MonoBehaviour
 
     public void PlaySnippet()
     {
-        if (!isLoaded || won || lost) return;
+        if (!isLoaded || won || lost) return; 
 
         if (playRoutine != null)
         {
@@ -398,7 +383,7 @@ public class MusicPlayer : MonoBehaviour
 
     private IEnumerator PlayForSeconds()
     {
-        audioSource.volume = 1f;
+        audioSource.volume = 1f; 
         audioSource.Play();
         float elapsed = 0f;
         while (elapsed < CurrentPlayTime)
@@ -409,7 +394,7 @@ public class MusicPlayer : MonoBehaviour
         }
 
         yield return StartCoroutine(FadeOutAudio());
-
+        
         UpdateProgress(0f);
         playRoutine = null;
     }
@@ -428,41 +413,34 @@ public class MusicPlayer : MonoBehaviour
         }
 
         audioSource.Stop();
-        audioSource.volume = startVolume;
+        audioSource.volume = startVolume; 
     }
 
-    private void ShowFeedback(string message, Color color, bool correct)
-    {
+    private void ShowFeedback(string message, Color color, bool correct) {
         if (feedbackRoutine != null) StopCoroutine(feedbackRoutine);
         feedbackRoutine = StartCoroutine(FeedbackAnimation(message, color, correct));
     }
 
-    private IEnumerator FeedbackAnimation(string message, Color color, bool correct)
-    {
+    private IEnumerator FeedbackAnimation(string message, Color color, bool correct) {
         RectTransform rt = feedbackText.rectTransform;
         feedbackText.text = message;
-        feedbackText.color = color;
-        feedbackText.alpha = 1f;
+        feedbackText.color = color;   
+        feedbackText.alpha = 1f;      
         rt.anchoredPosition = feedbackStartPos;
         rt.localScale = Vector3.one;
         StartCoroutine(Flash(color));
-        if (correct)
-        {
+        if (correct) {
             float t = 0f, duration = 0.45f;
-            while (t < duration)
-            {
+            while (t < duration) {
                 t += Time.deltaTime;
                 float k = Mathf.Clamp01(t / duration);
                 rt.localScale = Vector3.one * Mathf.LerpUnclamped(0.4f, 1f, EaseOutBack(k));
                 yield return null;
             }
             rt.localScale = Vector3.one;
-        }
-        else
-        {
+        } else {
             float t = 0f, duration = 0.4f;
-            while (t < duration)
-            {
+            while (t < duration) {
                 t += Time.deltaTime;
                 float k = t / duration;
                 float offset = Mathf.Sin(k * 40f) * (1f - k) * 15f;
@@ -470,12 +448,10 @@ public class MusicPlayer : MonoBehaviour
                 yield return null;
             }
             rt.anchoredPosition = feedbackStartPos;
-            if (!lost)
-            {
+            if (!lost) {
                 yield return new WaitForSeconds(1.5f);
                 float fade = 0.5f; t = 0f;
-                while (t < fade)
-                {
+                while (t < fade) {
                     t += Time.deltaTime;
                     feedbackText.alpha = 1f - Mathf.Clamp01(t / fade);
                     yield return null;
@@ -486,21 +462,18 @@ public class MusicPlayer : MonoBehaviour
         feedbackRoutine = null;
     }
 
-    private void ShakeBackground()
-    {
+    private void ShakeBackground() {
         if (backgroundImage == null) return;
         if (bgShakeRoutine != null) StopCoroutine(bgShakeRoutine);
         bgShakeRoutine = StartCoroutine(BackgroundShakeAnimation());
     }
 
-    private IEnumerator BackgroundShakeAnimation()
-    {
+    private IEnumerator BackgroundShakeAnimation() {
         float t = 0f, duration = 0.4f;
-        while (t < duration)
-        {
+        while (t < duration) {
             t += Time.deltaTime;
             float k = t / duration;
-            float fade = 1f - k;
+            float fade = 1f - k; 
             float x = Mathf.Sin(k * 45f) * backgroundShakeStrength * fade;
             float y = Mathf.Cos(k * 38f) * backgroundShakeStrength * 0.6f * fade;
             backgroundImage.anchoredPosition = backgroundStartPos + new Vector2(x, y);
@@ -510,12 +483,10 @@ public class MusicPlayer : MonoBehaviour
         bgShakeRoutine = null;
     }
 
-    private IEnumerator Flash(Color color)
-    {
+    private IEnumerator Flash(Color color) {
         if (flashOverlay == null) yield break;
         float t = 0f, duration = 0.4f, startAlpha = 0.35f;
-        while (t < duration)
-        {
+        while (t < duration) {
             t += Time.deltaTime;
             Color c = color;
             c.a = Mathf.Lerp(startAlpha, 0f, t / duration);
@@ -526,30 +497,25 @@ public class MusicPlayer : MonoBehaviour
         flashOverlay.color = end;
     }
 
-    private float EaseOutBack(float x)
-    {
+    private float EaseOutBack(float x) {
         const float c1 = 1.70158f;
         const float c3 = c1 + 1f;
         return 1f + c3 * Mathf.Pow(x - 1f, 3f) + c1 * Mathf.Pow(x - 1f, 2f);
     }
 
-    private void SetupBars()
-    {
-        if (playbackBar != null)
-        {
+    private void SetupBars() {
+        if (playbackBar != null) {
             playbackBar.minValue = 0f;
             playbackBar.maxValue = MaxPlayTime;
         }
-        if (unlockedBar != null)
-        {
+        if (unlockedBar != null) {
             unlockedBar.minValue = 0f;
             unlockedBar.maxValue = MaxPlayTime;
             unlockedBar.value = CurrentPlayTime;
         }
     }
 
-    private void UpdateProgress(float elapsed)
-    {
+    private void UpdateProgress(float elapsed) {
         if (playbackBar != null) playbackBar.value = elapsed;
         if (timeBarLabel != null) timeBarLabel.text = elapsed.ToString("0.0") + " / " + CurrentPlayTime + " s";
     }
@@ -593,7 +559,7 @@ public class MusicPlayer : MonoBehaviour
         if (albumCover != null)
         {
             albumCover.texture = null;
-            albumCover.gameObject.SetActive(false);
+            albumCover.gameObject.SetActive(false); 
         }
 
         StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
