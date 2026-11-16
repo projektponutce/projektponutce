@@ -71,7 +71,7 @@ public class MusicPlayer : MonoBehaviour
     public RawImage albumCover;
 
     [Header("Okienko Tytułu Piosenki")]
-    public TMP_Text songTitleDisplay; // Osobne pole tekstowe w Unity
+    public TMP_Text songTitleDisplay;
 
     [Header("Punktacja i Combo")]
     public TMP_Text scoreText;
@@ -109,7 +109,8 @@ public class MusicPlayer : MonoBehaviour
     private int currentStreak = 0;
     private int highScore = 0;
 
-    // Przechowuje ID utworów już wylosowanych w tej sesji
+    // Pamięć podręczna utworów z playlisty i historia zagraných utworów
+    private List<DeezerTrack> cachedValidTracks = new List<DeezerTrack>();
     private HashSet<long> playedTrackIds = new HashSet<long>();
 
     [HideInInspector]
@@ -160,6 +161,7 @@ public class MusicPlayer : MonoBehaviour
             if (www.result != UnityWebRequest.Result.Success)
             {
                 if (loadingText != null) loadingText.text = "Błąd połączenia z Deezer!";
+                if (guessInputField != null) guessInputField.interactable = true;
                 yield break;
             }
             string jsonResult = www.downloadHandler.text;
@@ -179,7 +181,16 @@ public class MusicPlayer : MonoBehaviour
 
                 if (foundPlaylist != null)
                     yield return StartCoroutine(FetchPlaylistTracks(foundPlaylist.id.ToString()));
-                else if (loadingText != null) loadingText.text = "Nie znaleziono takiej playlisty!";
+                else
+                {
+                    if (loadingText != null) loadingText.text = "Nie znaleziono takiej playlisty!";
+                    if (guessInputField != null) guessInputField.interactable = true;
+                }
+            }
+            else
+            {
+                if (loadingText != null) loadingText.text = "Brak playlist użytkownika!";
+                if (guessInputField != null) guessInputField.interactable = true;
             }
         }
     }
@@ -193,6 +204,7 @@ public class MusicPlayer : MonoBehaviour
             if (www.result != UnityWebRequest.Result.Success)
             {
                 if (loadingText != null) loadingText.text = "Błąd pobierania playlisty!";
+                if (guessInputField != null) guessInputField.interactable = true;
                 yield break;
             }
 
@@ -201,51 +213,63 @@ public class MusicPlayer : MonoBehaviour
 
             if (playlistFull != null && playlistFull.tracks != null && playlistFull.tracks.data != null && playlistFull.tracks.data.Count > 0)
             {
-                List<DeezerTrack> validTracks = playlistFull.tracks.data.FindAll(t => 
+                // Zapisujemy przefiltrowaną listę utworów do pamięci podręcznej jednorazowo
+                cachedValidTracks = playlistFull.tracks.data.FindAll(t => 
                     t != null && 
                     t.preview != null && 
-                    t.preview.Trim() != "" && 
-                    !playedTrackIds.Contains(t.id)
+                    t.preview.Trim() != ""
                 );
 
-                if (validTracks.Count == 0)
+                if (cachedValidTracks.Count == 0)
                 {
-                    playedTrackIds.Clear();
-                    validTracks = playlistFull.tracks.data.FindAll(t => 
-                        t != null && 
-                        t.preview != null && 
-                        t.preview.Trim() != ""
-                    );
-
-                    if (validTracks.Count == 0)
-                    {
-                        if (loadingText != null) loadingText.text = "Brak utworów z działającym audio na playliście!";
-                        Debug.LogError("Żaden utwór na tej playliście nie posiada działającej próbki audio w bazie Deezer!");
-                        yield break;
-                    }
+                    if (loadingText != null) loadingText.text = "Brak utworów z działającym audio na playliście!";
+                    Debug.LogError("Żaden utwór na tej playliście nie posiada działającej próbki audio w bazie Deezer!");
+                    if (guessInputField != null) guessInputField.interactable = true;
+                    yield break;
                 }
 
-                DeezerTrack randomTrack = validTracks[Random.Range(0, validTracks.Count)];
-                playedTrackIds.Add(randomTrack.id);
-
-                rawArtistName = randomTrack.artist.name;
-                rawSongTitle = Regex.Replace(randomTrack.title, @"\s*\(.*?\)", "").Trim();
-
-                // Format: artysta - tytuł
-                correctAnswer = $"{rawArtistName} - {rawSongTitle}";
-
-                Debug.Log($"Próbuję wczytać utwór: {correctAnswer} (ID: {randomTrack.id})");
-
-                if (randomTrack.album != null && !string.IsNullOrEmpty(randomTrack.album.cover_medium))
-                    StartCoroutine(DownloadAndSetCover(randomTrack.album.cover_medium));
-
-                yield return StartCoroutine(LoadAudioClip(randomTrack.preview));
+                // Rozpoczynamy losowanie pierwszego utworu
+                yield return StartCoroutine(PickAndLoadRandomTrack());
             }
             else
             {
                 if (loadingText != null) loadingText.text = "Playlista jest pusta!";
+                if (guessInputField != null) guessInputField.interactable = true;
             }
         }
+    }
+
+    // Nowa metoda losująca utwór lokalnie z pamięci podręcznej (bez zapytań HTTP do playlisty)
+    private IEnumerator PickAndLoadRandomTrack()
+    {
+        List<DeezerTrack> availableTracks = cachedValidTracks.FindAll(t => !playedTrackIds.Contains(t.id));
+
+        if (availableTracks.Count == 0)
+        {
+            playedTrackIds.Clear();
+            availableTracks = new List<DeezerTrack>(cachedValidTracks);
+
+            if (availableTracks.Count == 0)
+            {
+                if (loadingText != null) loadingText.text = "Brak dostępnych utworów!";
+                if (guessInputField != null) guessInputField.interactable = true;
+                yield break;
+            }
+        }
+
+        DeezerTrack randomTrack = availableTracks[Random.Range(0, availableTracks.Count)];
+        playedTrackIds.Add(randomTrack.id);
+
+        rawArtistName = randomTrack.artist.name;
+        rawSongTitle = Regex.Replace(randomTrack.title, @"\s*\(.*?\)", "").Trim();
+        correctAnswer = $"{rawArtistName} - {rawSongTitle}";
+
+        Debug.Log($"Próbuję wczytać utwór: {correctAnswer} (ID: {randomTrack.id})");
+
+        if (randomTrack.album != null && !string.IsNullOrEmpty(randomTrack.album.cover_medium))
+            StartCoroutine(DownloadAndSetCover(randomTrack.album.cover_medium));
+
+        yield return StartCoroutine(LoadAudioClip(randomTrack.preview));
     }
 
     private IEnumerator DownloadAndSetCover(string url)
@@ -271,7 +295,6 @@ public class MusicPlayer : MonoBehaviour
         if (songTitleDisplay != null)
         {
             songTitleDisplay.text = correctAnswer;
-            // Kolor zielony przy wygranej, czerwony przy przegranej
             songTitleDisplay.color = isSuccess ? correctColor : wrongColor;
 
             if (titleAnimRoutine != null) StopCoroutine(titleAnimRoutine);
@@ -320,8 +343,8 @@ public class MusicPlayer : MonoBehaviour
     {
         if (string.IsNullOrEmpty(url))
         {
-            Debug.LogWarning("[Pominięto] Pusty link audio. Losuję kolejny utwór...");
-            StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
+            Debug.LogWarning("[Pominięto] Pusty link audio. Losuję kolejny utwór lokalnie...");
+            yield return StartCoroutine(PickAndLoadRandomTrack());
             yield break;
         }
 
@@ -341,14 +364,14 @@ public class MusicPlayer : MonoBehaviour
                 }
                 else
                 {
-                    Debug.LogWarning("[Pominięto automatycznie] Utwór zablokowany lub uszkodzony w API Deezera. Losuję następny...");
-                    StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
+                    Debug.LogWarning("[Pominięto automatycznie] Uszkodzony klip audio. Losuję następny...");
+                    yield return StartCoroutine(PickAndLoadRandomTrack());
                 }
             }
             else
             {
                 Debug.LogWarning("[Pominięto] Błąd sieci przy pobieraniu audio. Losuję następny...");
-                StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
+                yield return StartCoroutine(PickAndLoadRandomTrack());
             }
         }
     }
@@ -399,7 +422,7 @@ public class MusicPlayer : MonoBehaviour
 
             UpdateScoreUI();
             ShowFeedback($"WYGRANA! +{pointsEarned} pkt!", correctColor, true);
-            RevealAnswerAndCover(true); // Przekazujemy true -> kolor zielony
+            RevealAnswerAndCover(true);
             
             if (playRoutine != null) StopCoroutine(playRoutine);
             playRoutine = StartCoroutine(PlayFullSnippetOnEnd());
@@ -426,7 +449,7 @@ public class MusicPlayer : MonoBehaviour
                 ShowFeedback("ŹLE! Przegrałeś.", wrongColor, false);
                 if (guessInputField != null) guessInputField.interactable = false;
                 ShakeBackground();
-                RevealAnswerAndCover(false); // Przekazujemy false -> kolor czerwony
+                RevealAnswerAndCover(false);
 
                 if (playRoutine != null) StopCoroutine(playRoutine);
                 playRoutine = StartCoroutine(PlayFullSnippetOnEnd());
@@ -735,6 +758,14 @@ public class MusicPlayer : MonoBehaviour
             albumCover.gameObject.SetActive(false);
         }
 
-        StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
+        // Jeśli mamy już pobraną listę utworów w pamięci podręcznej, losujemy od razu lokalnie
+        if (cachedValidTracks != null && cachedValidTracks.Count > 0)
+        {
+            StartCoroutine(PickAndLoadRandomTrack());
+        }
+        else
+        {
+            StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
+        }
     }
 }
