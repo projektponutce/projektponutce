@@ -176,23 +176,43 @@ public class MusicPlayer : MonoBehaviour
         using (UnityWebRequest www = UnityWebRequest.Get(url))
         {
             yield return www.SendWebRequest();
-            if (www.result != UnityWebRequest.Result.Success) yield break;
+            if (www.result != UnityWebRequest.Result.Success)
+            {
+                if (loadingText != null) loadingText.text = "Błąd pobierania playlisty!";
+                yield break;
+            }
 
             string jsonResult = www.downloadHandler.text;
             DeezerPlaylistFullResponse playlistFull = JsonUtility.FromJson<DeezerPlaylistFullResponse>(jsonResult);
 
             if (playlistFull != null && playlistFull.tracks != null && playlistFull.tracks.data != null && playlistFull.tracks.data.Count > 0)
             {
-                DeezerTrack randomTrack = playlistFull.tracks.data[Random.Range(0, playlistFull.tracks.data.Count)];
+                // Filtrujemy tylko te utwory, które posiadają link do podglądu audio
+                List<DeezerTrack> validTracks = playlistFull.tracks.data.FindAll(t => !string.IsNullOrEmpty(t.preview));
+
+                if (validTracks.Count == 0)
+                {
+                    if (loadingText != null) loadingText.text = "Brak utworów z podglądem audio na playliście!";
+                    yield break;
+                }
+
+                DeezerTrack randomTrack = validTracks[Random.Range(0, validTracks.Count)];
                 rawArtistName = randomTrack.artist.name;
                 rawSongTitle = Regex.Replace(randomTrack.title, @"\s*\(.*?\)", "").Trim();
 
-                correctAnswer = $"{rawArtistName} - {rawSongTitle}";
+                correctAnswer = $"{rawArtistName}\n{rawSongTitle}";
+
+                // Wyświetlenie wylosowanego utworu w konsoli Unity
+                Debug.Log($"Wylosowano utwór: {rawArtistName} - {rawSongTitle} (ID: {randomTrack.id})");
 
                 if (randomTrack.album != null && !string.IsNullOrEmpty(randomTrack.album.cover_medium))
                     StartCoroutine(DownloadAndSetCover(randomTrack.album.cover_medium));
 
                 yield return StartCoroutine(LoadAudioClip(randomTrack.preview));
+            }
+            else
+            {
+                if (loadingText != null) loadingText.text = "Playlista jest pusta!";
             }
         }
     }
@@ -233,6 +253,12 @@ public class MusicPlayer : MonoBehaviour
 
     private IEnumerator LoadAudioClip(string url)
     {
+        if (string.IsNullOrEmpty(url))
+        {
+            if (loadingText != null) loadingText.text = "Brak próbki audio dla tego utworu!";
+            yield break;
+        }
+
         if (loadingText != null) loadingText.text = "Pobieranie próbki audio...";
         using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(url, AudioType.MPEG))
         {
@@ -240,10 +266,21 @@ public class MusicPlayer : MonoBehaviour
             if (www.result == UnityWebRequest.Result.Success)
             {
                 AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
-                audioSource.clip = clip;
-                isLoaded = true;
-                if (loadingText != null) loadingText.text = "";
-                if (guessInputField != null) guessInputField.interactable = true;
+                if (clip != null)
+                {
+                    audioSource.clip = clip;
+                    isLoaded = true;
+                    if (loadingText != null) loadingText.text = "";
+                    if (guessInputField != null) guessInputField.interactable = true;
+                }
+                else
+                {
+                    if (loadingText != null) loadingText.text = "Błąd dekodowania audio!";
+                }
+            }
+            else
+            {
+                if (loadingText != null) loadingText.text = "Błąd pobierania audio!";
             }
         }
     }
