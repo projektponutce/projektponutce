@@ -70,6 +70,9 @@ public class MusicPlayer : MonoBehaviour
     [Header("Okładka Albumu")]
     public RawImage albumCover;
 
+    [Header("Okienko Tytułu Piosenki")]
+    public TMP_Text songTitleDisplay; // Osobne pole tekstowe w Unity
+
     [Header("Punktacja i Combo")]
     public TMP_Text scoreText;
     public TMP_Text streakText;
@@ -89,10 +92,12 @@ public class MusicPlayer : MonoBehaviour
     public RectTransform backgroundImage;
     public float backgroundShakeStrength = 20f;
 
-    private readonly float[] playTimes = { 3f, 5f, 10f, 15f, 30f };
+    // Czasy odtwarzania fragmentów
+    private readonly float[] playTimes = { 0.1f, 1f, 3f, 5f, 10f };
     private int timeIndex = 0;
     private Coroutine playRoutine;
     private Coroutine feedbackRoutine;
+    private Coroutine titleAnimRoutine;
     private Coroutine bgShakeRoutine;
     private Vector2 feedbackStartPos;
     private Vector2 backgroundStartPos;
@@ -103,6 +108,9 @@ public class MusicPlayer : MonoBehaviour
     private int currentScore = 0;
     private int currentStreak = 0;
     private int highScore = 0;
+
+    // Przechowuje ID utworów już wylosowanych w tej sesji
+    private HashSet<long> playedTrackIds = new HashSet<long>();
 
     [HideInInspector]
     public string correctAnswer = "";
@@ -116,6 +124,12 @@ public class MusicPlayer : MonoBehaviour
     {
         feedbackStartPos = feedbackText.rectTransform.anchoredPosition;
         feedbackText.alpha = 0f;
+
+        if (songTitleDisplay != null)
+        {
+            songTitleDisplay.text = "";
+            songTitleDisplay.alpha = 0f;
+        }
 
         if (backgroundImage != null)
             backgroundStartPos = backgroundImage.anchoredPosition;
@@ -187,23 +201,40 @@ public class MusicPlayer : MonoBehaviour
 
             if (playlistFull != null && playlistFull.tracks != null && playlistFull.tracks.data != null && playlistFull.tracks.data.Count > 0)
             {
-                // Filtrujemy tylko te utwory, które posiadają link do podglądu audio
-                List<DeezerTrack> validTracks = playlistFull.tracks.data.FindAll(t => !string.IsNullOrEmpty(t.preview));
+                List<DeezerTrack> validTracks = playlistFull.tracks.data.FindAll(t => 
+                    t != null && 
+                    t.preview != null && 
+                    t.preview.Trim() != "" && 
+                    !playedTrackIds.Contains(t.id)
+                );
 
                 if (validTracks.Count == 0)
                 {
-                    if (loadingText != null) loadingText.text = "Brak utworów z podglądem audio na playliście!";
-                    yield break;
+                    playedTrackIds.Clear();
+                    validTracks = playlistFull.tracks.data.FindAll(t => 
+                        t != null && 
+                        t.preview != null && 
+                        t.preview.Trim() != ""
+                    );
+
+                    if (validTracks.Count == 0)
+                    {
+                        if (loadingText != null) loadingText.text = "Brak utworów z działającym audio na playliście!";
+                        Debug.LogError("Żaden utwór na tej playliście nie posiada działającej próbki audio w bazie Deezer!");
+                        yield break;
+                    }
                 }
 
                 DeezerTrack randomTrack = validTracks[Random.Range(0, validTracks.Count)];
+                playedTrackIds.Add(randomTrack.id);
+
                 rawArtistName = randomTrack.artist.name;
                 rawSongTitle = Regex.Replace(randomTrack.title, @"\s*\(.*?\)", "").Trim();
 
-                correctAnswer = $"{rawArtistName}\n{rawSongTitle}";
+                // Format: artysta - tytuł
+                correctAnswer = $"{rawArtistName} - {rawSongTitle}";
 
-                // Wyświetlenie wylosowanego utworu w konsoli Unity
-                Debug.Log($"Wylosowano utwór: {rawArtistName} - {rawSongTitle} (ID: {randomTrack.id})");
+                Debug.Log($"Próbuję wczytać utwór: {correctAnswer} (ID: {randomTrack.id})");
 
                 if (randomTrack.album != null && !string.IsNullOrEmpty(randomTrack.album.cover_medium))
                     StartCoroutine(DownloadAndSetCover(randomTrack.album.cover_medium));
@@ -235,9 +266,43 @@ public class MusicPlayer : MonoBehaviour
         }
     }
 
-    private void RevealCover()
+    private void RevealAnswerAndCover(bool isSuccess)
     {
-        if (albumCover != null) StartCoroutine(FadeInCover());
+        if (songTitleDisplay != null)
+        {
+            songTitleDisplay.text = correctAnswer;
+            // Kolor zielony przy wygranej, czerwony przy przegranej
+            songTitleDisplay.color = isSuccess ? correctColor : wrongColor;
+
+            if (titleAnimRoutine != null) StopCoroutine(titleAnimRoutine);
+            titleAnimRoutine = StartCoroutine(AnimateTitlePopup());
+        }
+
+        if (albumCover != null) 
+            StartCoroutine(FadeInCover());
+    }
+
+    private IEnumerator AnimateTitlePopup()
+    {
+        RectTransform rt = songTitleDisplay.rectTransform;
+        float t = 0f;
+        float duration = 0.5f;
+
+        songTitleDisplay.alpha = 0f;
+        rt.localScale = Vector3.zero;
+
+        while (t < duration)
+        {
+            t += Time.deltaTime;
+            float k = Mathf.Clamp01(t / duration);
+            
+            rt.localScale = Vector3.one * Mathf.LerpUnclamped(0f, 1f, EaseOutBack(k));
+            songTitleDisplay.alpha = k;
+            yield return null;
+        }
+
+        rt.localScale = Vector3.one;
+        songTitleDisplay.alpha = 1f;
     }
 
     private IEnumerator FadeInCover()
@@ -255,7 +320,8 @@ public class MusicPlayer : MonoBehaviour
     {
         if (string.IsNullOrEmpty(url))
         {
-            if (loadingText != null) loadingText.text = "Brak próbki audio dla tego utworu!";
+            Debug.LogWarning("[Pominięto] Pusty link audio. Losuję kolejny utwór...");
+            StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
             yield break;
         }
 
@@ -266,7 +332,7 @@ public class MusicPlayer : MonoBehaviour
             if (www.result == UnityWebRequest.Result.Success)
             {
                 AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
-                if (clip != null)
+                if (clip != null && clip.length > 0)
                 {
                     audioSource.clip = clip;
                     isLoaded = true;
@@ -275,12 +341,14 @@ public class MusicPlayer : MonoBehaviour
                 }
                 else
                 {
-                    if (loadingText != null) loadingText.text = "Błąd dekodowania audio!";
+                    Debug.LogWarning("[Pominięto automatycznie] Utwór zablokowany lub uszkodzony w API Deezera. Losuję następny...");
+                    StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
                 }
             }
             else
             {
-                if (loadingText != null) loadingText.text = "Błąd pobierania audio!";
+                Debug.LogWarning("[Pominięto] Błąd sieci przy pobieraniu audio. Losuję następny...");
+                StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
             }
         }
     }
@@ -330,8 +398,11 @@ public class MusicPlayer : MonoBehaviour
             }
 
             UpdateScoreUI();
-            ShowFeedback($"WYGRANA! +{pointsEarned} pkt! To: {correctAnswer}", correctColor, true);
-            RevealCover();
+            ShowFeedback($"WYGRANA! +{pointsEarned} pkt!", correctColor, true);
+            RevealAnswerAndCover(true); // Przekazujemy true -> kolor zielony
+            
+            if (playRoutine != null) StopCoroutine(playRoutine);
+            playRoutine = StartCoroutine(PlayFullSnippetOnEnd());
         }
         else
         {
@@ -352,10 +423,13 @@ public class MusicPlayer : MonoBehaviour
             {
                 lost = true;
                 guessInputField.text = "";
-                ShowFeedback("ŹLE! Przegrałeś. Tytuł: " + correctAnswer, wrongColor, false);
+                ShowFeedback("ŹLE! Przegrałeś.", wrongColor, false);
                 if (guessInputField != null) guessInputField.interactable = false;
                 ShakeBackground();
-                RevealCover();
+                RevealAnswerAndCover(false); // Przekazujemy false -> kolor czerwony
+
+                if (playRoutine != null) StopCoroutine(playRoutine);
+                playRoutine = StartCoroutine(PlayFullSnippetOnEnd());
             }
             else
             {
@@ -438,6 +512,35 @@ public class MusicPlayer : MonoBehaviour
 
         yield return StartCoroutine(FadeOutAudio());
 
+        UpdateProgress(0f);
+        playRoutine = null;
+    }
+
+    private IEnumerator PlayFullSnippetOnEnd()
+    {
+        if (audioSource.clip == null) yield break;
+
+        float duration = Mathf.Min(30f, audioSource.clip.length);
+
+        if (playbackBar != null)
+        {
+            playbackBar.maxValue = duration;
+        }
+
+        audioSource.volume = 1f;
+        audioSource.time = 0f;
+        audioSource.Play();
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            if (playbackBar != null) playbackBar.value = elapsed;
+            if (timeBarLabel != null) timeBarLabel.text = elapsed.ToString("0.0") + " / " + duration.ToString("0.0") + " s";
+            yield return null;
+        }
+
+        yield return StartCoroutine(FadeOutAudio());
         UpdateProgress(0f);
         playRoutine = null;
     }
@@ -567,12 +670,14 @@ public class MusicPlayer : MonoBehaviour
         {
             playbackBar.minValue = 0f;
             playbackBar.maxValue = MaxPlayTime;
+            playbackBar.interactable = false;
         }
         if (unlockedBar != null)
         {
             unlockedBar.minValue = 0f;
             unlockedBar.maxValue = MaxPlayTime;
             unlockedBar.value = CurrentPlayTime;
+            unlockedBar.interactable = false;
         }
     }
 
@@ -595,6 +700,12 @@ public class MusicPlayer : MonoBehaviour
         lost = false;
         isLoaded = false;
         timeIndex = 0;
+
+        if (songTitleDisplay != null)
+        {
+            songTitleDisplay.text = "";
+            songTitleDisplay.alpha = 0f;
+        }
 
         if (guessInputField != null)
         {
