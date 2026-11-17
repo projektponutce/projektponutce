@@ -105,7 +105,7 @@ public class MusicPlayer : MonoBehaviour
 
     [Header("Szafa Grająca (Historia Piosenek)")]
     public int maxHistoryItems = 3;
-    public Vector2 jukeboxOffset = new Vector2(0f, -22f); // Odstęp bezpośrednio pod napisem REKORD
+    public Vector2 jukeboxOffset = new Vector2(0f, -22f);
     public float jukeboxScale = 1.0f;
 
     [Header("Kolory Pasków Czasu")]
@@ -150,6 +150,7 @@ public class MusicPlayer : MonoBehaviour
     private Texture2D currentFullCoverTex;
     private Texture2D currentPixelatedCoverTex;
     private GameObject coverFrameObj;
+    private Vector3 initialCoverFrameScale = Vector3.one;
     private TMP_Text coverMysteryQuestionText;
     private TMP_FontAsset runtimeCrispFont;
 
@@ -383,7 +384,6 @@ public class MusicPlayer : MonoBehaviour
         t.ForceMeshUpdate();
     }
 
-    // Buduje dużą, czytelną Szafę Grającą bezpośrednio pod napisem REKORD po lewej stronie ekranu!
     private void CreateJukeboxHistoryUI()
     {
         Canvas rootCanvas = GetComponentInParent<Canvas>();
@@ -391,7 +391,6 @@ public class MusicPlayer : MonoBehaviour
             rootCanvas = guessInputField.GetComponentInParent<Canvas>();
         if (rootCanvas == null) return;
 
-        // Szukamy najniższego napisu punktacji z lewej strony (zazwyczaj highScoreText -> "REKORD")
         TMP_Text anchorStatText = highScoreText != null ? highScoreText : (streakText != null ? streakText : scoreText);
         Transform parentToUse = anchorStatText != null ? anchorStatText.transform.parent : rootCanvas.transform;
 
@@ -417,7 +416,6 @@ public class MusicPlayer : MonoBehaviour
         vlg.childForceExpandWidth = true;
         vlg.childForceExpandHeight = false;
 
-        // Nagłówek sekcji (większy i wyraźniejszy)
         GameObject headerObj = new GameObject("Header", typeof(RectTransform), typeof(TextMeshProUGUI));
         headerObj.transform.SetParent(jukeboxPanelObj.transform, false);
         RectTransform headerRt = headerObj.GetComponent<RectTransform>();
@@ -465,7 +463,6 @@ public class MusicPlayer : MonoBehaviour
 
             cardBtn.onClick.AddListener(() => OnHistoryCardClicked(slotIndex));
 
-            // Większa miniaturka okładki (52x52 px)
             GameObject coverObj = new GameObject("MiniCover", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage), typeof(Outline));
             coverObj.transform.SetParent(cardObj.transform, false);
 
@@ -484,7 +481,6 @@ public class MusicPlayer : MonoBehaviour
             miniOutline.effectColor = new Color(0.45f, 0.30f, 0.80f, 0.85f);
             miniOutline.effectDistance = new Vector2(1.2f, -1.2f);
 
-            // Większy i czytelniejszy tekst po prawej stronie okładki
             GameObject textObj = new GameObject("InfoText", typeof(RectTransform), typeof(TextMeshProUGUI));
             textObj.transform.SetParent(cardObj.transform, false);
 
@@ -521,7 +517,6 @@ public class MusicPlayer : MonoBehaviour
         jukeboxPanelObj.SetActive(false);
     }
 
-    // Ustawia Szafę Grającą dokładnie pod kafelkiem REKORD po lewej stronie ekranu!
     private void PositionJukeboxUnderStats()
     {
         if (jukeboxPanelObj == null) return;
@@ -531,12 +526,11 @@ public class MusicPlayer : MonoBehaviour
 
         if (anchorStatText != null)
         {
-            // Jeśli mamy kafelek tła pod napisem REKORD, bierzemy jego lewy dolny róg
             if (statBadges.TryGetValue(anchorStatText, out RectTransform badgeRt) && badgeRt != null)
             {
                 panelRt.anchorMin = badgeRt.anchorMin;
                 panelRt.anchorMax = badgeRt.anchorMax;
-                panelRt.pivot = new Vector2(0f, 1f); // Lewy górny róg Szafy Grającej
+                panelRt.pivot = new Vector2(0f, 1f);
 
                 float bottomY = badgeRt.localPosition.y - (badgeRt.sizeDelta.y * 0.5f);
                 panelRt.localPosition = new Vector3(badgeRt.localPosition.x + jukeboxOffset.x, bottomY + jukeboxOffset.y, 0f);
@@ -556,6 +550,9 @@ public class MusicPlayer : MonoBehaviour
     private void RecordCurrentSongToHistory(bool wasWon, int pointsEarned)
     {
         if (string.IsNullOrEmpty(rawSongTitle) && string.IsNullOrEmpty(rawArtistName))
+            return;
+
+        if (songHistory.Count > 0 && songHistory[0].trackId == currentTrackId && currentTrackId > 0)
             return;
 
         PlayedSongRecord record = new PlayedSongRecord
@@ -749,7 +746,7 @@ public class MusicPlayer : MonoBehaviour
                 if (legacyText != null)
                 {
                     legacyText.color = Color.white;
-                    legacyText.fontStyle = FontStyle.Bold;
+                    legacyText.fontStyle = FontStyle.Bold; // Naprawione z FontStyles.Bold na FontStyle.Bold!
                 }
             }
         }
@@ -889,7 +886,6 @@ public class MusicPlayer : MonoBehaviour
 
     private void StyleScorePanel(Color borderCol, Color shadowCol)
     {
-        // Sprawdzamy, czy napisy z lewej nie są ucięte przez lewą krawędź ekranu, i w razie potrzeby lekko przesuwamy je w prawo
         KeepLeftStatsInsideScreen();
 
         StyleSingleStatBadge(scoreText, new Color(0.13f, 0.08f, 0.28f, 0.92f), borderCol, shadowCol);
@@ -915,7 +911,6 @@ public class MusicPlayer : MonoBehaviour
             t.rectTransform.GetWorldCorners(textCorners);
             float textLeftWorldX = textCorners[0].x;
 
-            // Jeśli lewy brzeg tekstu jest zbyt blisko (lub poza) lewą krawędzią ekranu, przesuwamy go do bezpiecznego marginesu
             float minMarginWorld = 28f * rootCanvas.scaleFactor;
             if (textLeftWorldX < canvasLeftWorldX + minMarginWorld)
             {
@@ -1021,7 +1016,6 @@ public class MusicPlayer : MonoBehaviour
 
         if (coverFrameObj == null)
         {
-            // Tworzymy ramkę jako osobną, nadrzędną strukturę
             coverFrameObj = new GameObject("AlbumCoverFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Shadow));
             coverFrameObj.transform.SetParent(coverRt.parent, false);
             coverFrameObj.transform.SetSiblingIndex(coverRt.GetSiblingIndex());
@@ -1032,8 +1026,7 @@ public class MusicPlayer : MonoBehaviour
             frameRt.pivot = coverRt.pivot;
             frameRt.anchoredPosition = coverRt.anchoredPosition;
             frameRt.localScale = coverRt.localScale;
-
-            // Ramy ramki będą teraz AUTOMATYCZNIE o 14 pikseli większe z każdej strony niż okładka!
+            initialCoverFrameScale = coverRt.localScale;
             frameRt.sizeDelta = coverRt.sizeDelta + new Vector2(14f, 14f);
 
             Image frameImg = coverFrameObj.GetComponent<Image>();
@@ -1042,7 +1035,6 @@ public class MusicPlayer : MonoBehaviour
 
             AddOrUpdateOutlineAndShadow(coverFrameObj, borderCol, shadowCol);
 
-            // Wrzucamy okładkę do środka ramki, żeby była idealnie wyśśrodkowana
             coverRt.SetParent(frameRt, true);
             coverRt.anchorMin = new Vector2(0.5f, 0.5f);
             coverRt.anchorMax = new Vector2(0.5f, 0.5f);
@@ -1050,7 +1042,6 @@ public class MusicPlayer : MonoBehaviour
             coverRt.anchoredPosition = Vector2.zero;
             coverRt.localScale = Vector3.one;
 
-            // Pytajnik "?" na środku okładki
             GameObject qObj = new GameObject("MysteryQuestionMark", typeof(RectTransform), typeof(TextMeshProUGUI));
             qObj.transform.SetParent(coverRt, false);
 
@@ -1069,22 +1060,20 @@ public class MusicPlayer : MonoBehaviour
             coverMysteryQuestionText.raycastTarget = false;
             SharpenSingleTMP(coverMysteryQuestionText);
 
-            // PRZYPIĘCIE NAPISU POD RAMKĄ: Napis jest teraz dzieckiem ramki i zawsze trzyma się 14 pikseli pod nią!
             if (songTitleDisplay != null)
             {
                 RectTransform titleRt = songTitleDisplay.rectTransform;
                 titleRt.SetParent(frameRt, false);
-                titleRt.anchorMin = new Vector2(0.5f, 0f); // Kotwica na dolnej krawędzi ramki
+                titleRt.anchorMin = new Vector2(0.5f, 0f);
                 titleRt.anchorMax = new Vector2(0.5f, 0f);
-                titleRt.pivot = new Vector2(0.5f, 1f);    // Pivot na górnej krawędzi napisu
-                titleRt.anchoredPosition = new Vector2(0f, -14f); // Zawsze dokładnie 14 px odstępu pod ramką
+                titleRt.pivot = new Vector2(0.5f, 1f);
+                titleRt.anchoredPosition = new Vector2(0f, -14f);
                 titleRt.sizeDelta = new Vector2(Mathf.Max(frameRt.rect.width + 100f, 300f), 90f);
                 songTitleDisplay.alignment = TextAlignmentOptions.Top;
             }
         }
         else
         {
-            // Jeśli ramka już istnieje, aktualizujemy jej rozmiar na wypadek, gdyby okładka zmieniła się w trakcie gry
             RectTransform frameRt = coverFrameObj.GetComponent<RectTransform>();
             frameRt.sizeDelta = coverRt.sizeDelta + new Vector2(14f, 14f);
         }
@@ -1831,7 +1820,7 @@ public class MusicPlayer : MonoBehaviour
                     }
                     currentFullCoverTex = tex;
 
-                    if ((won || lost) && songHistory.Count > 0 && songHistory[0].trackId == currentTrackId)
+                    if (songHistory.Count > 0 && songHistory[0].trackId == currentTrackId && songHistory[0].coverTexture == null)
                     {
                         songHistory[0].coverTexture = currentFullCoverTex;
                         RefreshJukeboxHistoryUI();
@@ -1914,6 +1903,7 @@ public class MusicPlayer : MonoBehaviour
     private IEnumerator FlipAndRevealCover(bool isSuccess)
     {
         Transform targetToFlip = coverFrameObj != null ? coverFrameObj.transform : albumCover.transform;
+        Vector3 baseScale = coverFrameObj != null ? initialCoverFrameScale : Vector3.one;
 
         if (coverFrameObj != null)
         {
@@ -1928,8 +1918,8 @@ public class MusicPlayer : MonoBehaviour
         {
             t += Time.deltaTime;
             float k = Mathf.Clamp01(t / halfDuration);
-            float scaleX = Mathf.Lerp(1f, 0f, k);
-            targetToFlip.localScale = new Vector3(scaleX, 1.05f, 1f);
+            float scaleX = Mathf.Lerp(baseScale.x, 0f, k);
+            targetToFlip.localScale = new Vector3(scaleX, baseScale.y * 1.05f, baseScale.z);
             yield return null;
         }
 
@@ -1948,13 +1938,13 @@ public class MusicPlayer : MonoBehaviour
         {
             t += Time.deltaTime;
             float k = Mathf.Clamp01(t / secondDuration);
-            float scaleX = Mathf.LerpUnclamped(0f, 1f, EaseOutBack(k));
-            float scaleY = Mathf.Lerp(1.08f, 1f, k);
-            targetToFlip.localScale = new Vector3(scaleX, scaleY, 1f);
+            float scaleX = Mathf.LerpUnclamped(0f, baseScale.x, EaseOutBack(k));
+            float scaleY = Mathf.Lerp(baseScale.y * 1.05f, baseScale.y, k);
+            targetToFlip.localScale = new Vector3(scaleX, scaleY, baseScale.z);
             yield return null;
         }
 
-        targetToFlip.localScale = Vector3.one;
+        targetToFlip.localScale = baseScale;
     }
 
     private string NormalizeForComparison(string text)
@@ -2447,7 +2437,12 @@ public class MusicPlayer : MonoBehaviour
 
     public void StartNewRound()
     {
-        if (lost)
+        if (isLoaded && !won && !lost)
+        {
+            RecordCurrentSongToHistory(false, 0);
+        }
+
+        if (!won)
         {
             currentScore = 0;
             currentStreak = 0;
@@ -2518,7 +2513,7 @@ public class MusicPlayer : MonoBehaviour
         }
         if (coverFrameObj != null)
         {
-            coverFrameObj.transform.localScale = Vector3.one;
+            coverFrameObj.transform.localScale = initialCoverFrameScale;
             Outline frameOutline = coverFrameObj.GetComponent<Outline>();
             if (frameOutline != null) frameOutline.effectColor = sliderOutlineColor;
         }
