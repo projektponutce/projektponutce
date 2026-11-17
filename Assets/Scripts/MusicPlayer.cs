@@ -96,13 +96,17 @@ public class MusicPlayer : MonoBehaviour
     public float backgroundShakeStrength = 20f;
 
     [Header("Czcionka i Wygląd UI")]
-    [Tooltip("Opcjonalnie: przeciągnij tutaj własny TMP_FontAsset. Jeśli puste, skrypt sam wygeneruje ładną czcionkę HD z systemu!")]
     public TMP_FontAsset customFontAsset;
     public int maxVisibleSuggestions = 4;
     public int maxSearchResults = 25;
     public float itemHeight = 36f;
     public float scrollSensitivity = 7f;
     public bool styleSceneControls = true;
+
+    [Header("Szafa Grająca (Historia Piosenek)")]
+    public int maxHistoryItems = 3;
+    public Vector2 jukeboxOffset = new Vector2(0f, -22f); // Odstęp bezpośrednio pod napisem REKORD
+    public float jukeboxScale = 1.0f;
 
     [Header("Kolory Pasków Czasu")]
     public Color sliderTrackBgColor = new Color(0.08f, 0.05f, 0.18f, 0.96f);
@@ -149,6 +153,32 @@ public class MusicPlayer : MonoBehaviour
     private TMP_Text coverMysteryQuestionText;
     private TMP_FontAsset runtimeCrispFont;
 
+    private long currentTrackId = 0;
+
+    private class PlayedSongRecord
+    {
+        public long trackId;
+        public string artist;
+        public string title;
+        public bool wasWon;
+        public float guessedInSeconds;
+        public int pointsEarned;
+        public Texture2D coverTexture;
+    }
+
+    private class HistorySlotUI
+    {
+        public GameObject rootObj;
+        public RawImage coverImg;
+        public TMP_Text infoText;
+        public Outline borderOutline;
+        public Button openUrlBtn;
+    }
+
+    private List<PlayedSongRecord> songHistory = new List<PlayedSongRecord>();
+    private List<HistorySlotUI> historySlots = new List<HistorySlotUI>();
+    private GameObject jukeboxPanelObj;
+
     private class SongSuggestion
     {
         public string artist;
@@ -183,7 +213,6 @@ public class MusicPlayer : MonoBehaviour
         if (guessInputField == null) Debug.LogError("[BŁĄD] Brak przypisanego TMP_InputField w inspektorze!");
         if (feedbackText == null) Debug.LogError("[BŁĄD] Brak przypisanego FeedbackText w inspektorze!");
 
-        // 1. Tworzymy nowoczesną, super-ostrą czcionkę HD z systemu operacyjnego
         SetupCrispModernFont();
 
         if (flashOverlay != null)
@@ -241,11 +270,12 @@ public class MusicPlayer : MonoBehaviour
             guessInputField.onSubmit.AddListener(OnGuessSubmitted);
         }
 
-        ApplyCrispFontToAllSceneTexts();
-        UpdateGuessButtonLabel();
-
         highScore = PlayerPrefs.GetInt("HighScore", 0);
         UpdateScoreUI();
+
+        CreateJukeboxHistoryUI();
+        ApplyCrispFontToAllSceneTexts();
+        UpdateGuessButtonLabel();
 
         StartCoroutine(FetchSpecificPlaylistAndPickSong(userId, targetPlaylistName));
     }
@@ -259,7 +289,6 @@ public class MusicPlayer : MonoBehaviour
         }
     }
 
-    // Tworzy w locie nowoczesną czcionkę wysokiej rozdzielczości (SDFAA 2048x2048) z czcionek zainstalowanych w systemie (macOS / Windows)
     private void SetupCrispModernFont()
     {
         if (customFontAsset != null)
@@ -286,11 +315,9 @@ public class MusicPlayer : MonoBehaviour
             Font osFont = Font.CreateDynamicFontFromOSFont(preferredOSFonts, 64);
             if (osFont != null)
             {
-                // Rozdzielczość próbkowania 64px i atlas 2048x2048 dają krystalicznie czysty tekst bez pikselozy!
                 runtimeCrispFont = TMP_FontAsset.CreateFontAsset(osFont, 64, 6, GlyphRenderMode.SDFAA, 2048, 2048, AtlasPopulationMode.Dynamic);
                 if (runtimeCrispFont != null && runtimeCrispFont.material != null)
                 {
-                    // Wstępne wygenerowanie polskich znaków i podstawowego alfabetu
                     runtimeCrispFont.TryAddCharacters("AĄBCĆDEĘFGHIJKLŁMNŃOÓPQRSŚTUVWXYZŹŻaąbcćdeęfghijklłmnńoópqrsśtuvwxyzźż0123456789!@#$%^&*()-_=+[]{};:'\",.<>/?♪—•");
                 }
             }
@@ -314,7 +341,6 @@ public class MusicPlayer : MonoBehaviour
             CanvasScaler scaler = rootCanvas.GetComponent<CanvasScaler>();
             if (scaler != null)
             {
-                // Upewniamy się, że Canvas skaluje się w wysokiej rozdzielczości referencyjnej
                 if (scaler.uiScaleMode == CanvasScaler.ScaleMode.ScaleWithScreenSize)
                 {
                     scaler.referenceResolution = new Vector2(1920f, 1080f);
@@ -332,12 +358,10 @@ public class MusicPlayer : MonoBehaviour
         }
     }
 
-    // Usuwa psujące ostrość komponenty UI Shadow/Outline z obiektu TMP_Text i podmienia czcionkę na wersję HD
     private void SharpenSingleTMP(TMP_Text t)
     {
         if (t == null) return;
 
-        // UWAGA: Zarówno Outline jak i Shadow z UnityEngine.UI na obiekcie TMP_Text niszczą wygładzanie SDF i powodują pikselozę!
         Outline[] badOutlines = t.GetComponents<Outline>();
         foreach (var o in badOutlines) Destroy(o);
 
@@ -351,15 +375,298 @@ public class MusicPlayer : MonoBehaviour
 
         t.extraPadding = true;
 
-        if (t.fontSharedMaterial != null)
+        if (t.fontSharedMaterial != null && t.fontSharedMaterial.mainTexture != null)
         {
-            if (t.fontSharedMaterial.mainTexture != null)
-            {
-                t.fontSharedMaterial.mainTexture.filterMode = FilterMode.Bilinear;
-            }
+            t.fontSharedMaterial.mainTexture.filterMode = FilterMode.Bilinear;
         }
 
         t.ForceMeshUpdate();
+    }
+
+    // Buduje dużą, czytelną Szafę Grającą bezpośrednio pod napisem REKORD po lewej stronie ekranu!
+    private void CreateJukeboxHistoryUI()
+    {
+        Canvas rootCanvas = GetComponentInParent<Canvas>();
+        if (rootCanvas == null && guessInputField != null)
+            rootCanvas = guessInputField.GetComponentInParent<Canvas>();
+        if (rootCanvas == null) return;
+
+        // Szukamy najniższego napisu punktacji z lewej strony (zazwyczaj highScoreText -> "REKORD")
+        TMP_Text anchorStatText = highScoreText != null ? highScoreText : (streakText != null ? streakText : scoreText);
+        Transform parentToUse = anchorStatText != null ? anchorStatText.transform.parent : rootCanvas.transform;
+
+        jukeboxPanelObj = new GameObject("JukeboxHistoryPanel", typeof(RectTransform), typeof(VerticalLayoutGroup));
+        jukeboxPanelObj.transform.SetParent(parentToUse, false);
+
+        float cardWidth = 310f;
+        float cardHeight = 66f;
+        float totalHeight = 28f + maxHistoryItems * (cardHeight + 8f);
+
+        RectTransform panelRt = jukeboxPanelObj.GetComponent<RectTransform>();
+        panelRt.sizeDelta = new Vector2(cardWidth, totalHeight);
+        panelRt.localScale = Vector3.one * jukeboxScale;
+
+        PositionJukeboxUnderStats();
+
+        VerticalLayoutGroup vlg = jukeboxPanelObj.GetComponent<VerticalLayoutGroup>();
+        vlg.padding = new RectOffset(0, 0, 0, 0);
+        vlg.spacing = 8f;
+        vlg.childAlignment = TextAnchor.UpperLeft;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = false;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+
+        // Nagłówek sekcji (większy i wyraźniejszy)
+        GameObject headerObj = new GameObject("Header", typeof(RectTransform), typeof(TextMeshProUGUI));
+        headerObj.transform.SetParent(jukeboxPanelObj.transform, false);
+        RectTransform headerRt = headerObj.GetComponent<RectTransform>();
+        headerRt.sizeDelta = new Vector2(cardWidth, 24f);
+
+        TextMeshProUGUI headerTmp = headerObj.GetComponent<TextMeshProUGUI>();
+        if (runtimeCrispFont != null) headerTmp.font = runtimeCrispFont;
+        headerTmp.text = "<color=#D4C2FF>♪ OSTATNIE UTWORY</color> <size=82%><color=#9A84D8>(kliknij, by odsłuchać)</color></size>";
+        headerTmp.fontSize = 14f;
+        headerTmp.fontStyle = FontStyles.Bold;
+        headerTmp.alignment = TextAlignmentOptions.BottomLeft;
+        headerTmp.textWrappingMode = TextWrappingModes.NoWrap;
+        headerTmp.raycastTarget = false;
+        SharpenSingleTMP(headerTmp);
+
+        Color shadowCol = new Color(0f, 0f, 0f, 0.60f);
+
+        for (int i = 0; i < maxHistoryItems; i++)
+        {
+            int slotIndex = i;
+            GameObject cardObj = new GameObject($"HistoryCard_{i}", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button), typeof(Outline), typeof(Shadow));
+            cardObj.transform.SetParent(jukeboxPanelObj.transform, false);
+
+            RectTransform cardRt = cardObj.GetComponent<RectTransform>();
+            cardRt.sizeDelta = new Vector2(cardWidth, cardHeight);
+
+            Image cardBg = cardObj.GetComponent<Image>();
+            cardBg.color = new Color(0.12f, 0.08f, 0.26f, 0.96f);
+
+            Outline cardOutline = cardObj.GetComponent<Outline>();
+            cardOutline.effectColor = new Color(0.55f, 0.38f, 0.92f, 0.90f);
+            cardOutline.effectDistance = new Vector2(1.5f, -1.5f);
+
+            Shadow cardShadow = cardObj.GetComponent<Shadow>();
+            cardShadow.effectColor = shadowCol;
+            cardShadow.effectDistance = new Vector2(0f, -3f);
+
+            Button cardBtn = cardObj.GetComponent<Button>();
+            ColorBlock cb = cardBtn.colors;
+            cb.normalColor = Color.white;
+            cb.highlightedColor = new Color(1.30f, 1.20f, 1.50f, 1f);
+            cb.pressedColor = new Color(0.85f, 0.75f, 1f, 1f);
+            cb.fadeDuration = 0.08f;
+            cardBtn.colors = cb;
+
+            cardBtn.onClick.AddListener(() => OnHistoryCardClicked(slotIndex));
+
+            // Większa miniaturka okładki (52x52 px)
+            GameObject coverObj = new GameObject("MiniCover", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage), typeof(Outline));
+            coverObj.transform.SetParent(cardObj.transform, false);
+
+            RectTransform coverRt = coverObj.GetComponent<RectTransform>();
+            coverRt.anchorMin = new Vector2(0f, 0.5f);
+            coverRt.anchorMax = new Vector2(0f, 0.5f);
+            coverRt.pivot = new Vector2(0f, 0.5f);
+            coverRt.anchoredPosition = new Vector2(8f, 0f);
+            coverRt.sizeDelta = new Vector2(52f, 52f);
+
+            RawImage miniRaw = coverObj.GetComponent<RawImage>();
+            miniRaw.color = Color.white;
+            miniRaw.raycastTarget = false;
+
+            Outline miniOutline = coverObj.GetComponent<Outline>();
+            miniOutline.effectColor = new Color(0.45f, 0.30f, 0.80f, 0.85f);
+            miniOutline.effectDistance = new Vector2(1.2f, -1.2f);
+
+            // Większy i czytelniejszy tekst po prawej stronie okładki
+            GameObject textObj = new GameObject("InfoText", typeof(RectTransform), typeof(TextMeshProUGUI));
+            textObj.transform.SetParent(cardObj.transform, false);
+
+            RectTransform textRt = textObj.GetComponent<RectTransform>();
+            textRt.anchorMin = Vector2.zero;
+            textRt.anchorMax = Vector2.one;
+            textRt.offsetMin = new Vector2(68f, 4f);
+            textRt.offsetMax = new Vector2(-10f, -4f);
+
+            TextMeshProUGUI infoTmp = textObj.GetComponent<TextMeshProUGUI>();
+            if (runtimeCrispFont != null) infoTmp.font = runtimeCrispFont;
+            infoTmp.fontSize = 14.5f;
+            infoTmp.color = Color.white;
+            infoTmp.alignment = TextAlignmentOptions.MidlineLeft;
+            infoTmp.textWrappingMode = TextWrappingModes.NoWrap;
+            infoTmp.overflowMode = TextOverflowModes.Ellipsis;
+            infoTmp.richText = true;
+            infoTmp.raycastTarget = false;
+            SharpenSingleTMP(infoTmp);
+
+            HistorySlotUI slot = new HistorySlotUI
+            {
+                rootObj = cardObj,
+                coverImg = miniRaw,
+                infoText = infoTmp,
+                borderOutline = cardOutline,
+                openUrlBtn = cardBtn
+            };
+
+            cardObj.SetActive(false);
+            historySlots.Add(slot);
+        }
+
+        jukeboxPanelObj.SetActive(false);
+    }
+
+    // Ustawia Szafę Grającą dokładnie pod kafelkiem REKORD po lewej stronie ekranu!
+    private void PositionJukeboxUnderStats()
+    {
+        if (jukeboxPanelObj == null) return;
+
+        RectTransform panelRt = jukeboxPanelObj.GetComponent<RectTransform>();
+        TMP_Text anchorStatText = highScoreText != null ? highScoreText : (streakText != null ? streakText : scoreText);
+
+        if (anchorStatText != null)
+        {
+            // Jeśli mamy kafelek tła pod napisem REKORD, bierzemy jego lewy dolny róg
+            if (statBadges.TryGetValue(anchorStatText, out RectTransform badgeRt) && badgeRt != null)
+            {
+                panelRt.anchorMin = badgeRt.anchorMin;
+                panelRt.anchorMax = badgeRt.anchorMax;
+                panelRt.pivot = new Vector2(0f, 1f); // Lewy górny róg Szafy Grającej
+
+                float bottomY = badgeRt.localPosition.y - (badgeRt.sizeDelta.y * 0.5f);
+                panelRt.localPosition = new Vector3(badgeRt.localPosition.x + jukeboxOffset.x, bottomY + jukeboxOffset.y, 0f);
+                return;
+            }
+
+            RectTransform txtRt = anchorStatText.rectTransform;
+            Vector3[] corners = new Vector3[4];
+            txtRt.GetLocalCorners(corners);
+            panelRt.anchorMin = txtRt.anchorMin;
+            panelRt.anchorMax = txtRt.anchorMax;
+            panelRt.pivot = new Vector2(0f, 1f);
+            panelRt.localPosition = txtRt.localPosition + new Vector3(corners[0].x + jukeboxOffset.x, corners[0].y + jukeboxOffset.y, 0f);
+        }
+    }
+
+    private void RecordCurrentSongToHistory(bool wasWon, int pointsEarned)
+    {
+        if (string.IsNullOrEmpty(rawSongTitle) && string.IsNullOrEmpty(rawArtistName))
+            return;
+
+        PlayedSongRecord record = new PlayedSongRecord
+        {
+            trackId = currentTrackId,
+            artist = rawArtistName,
+            title = rawSongTitle,
+            wasWon = wasWon,
+            guessedInSeconds = CurrentPlayTime,
+            pointsEarned = pointsEarned,
+            coverTexture = currentFullCoverTex
+        };
+
+        songHistory.Insert(0, record);
+
+        while (songHistory.Count > maxHistoryItems)
+        {
+            PlayedSongRecord oldest = songHistory[songHistory.Count - 1];
+            songHistory.RemoveAt(songHistory.Count - 1);
+
+            if (oldest.coverTexture != null && oldest.coverTexture != currentFullCoverTex)
+            {
+                bool stillUsed = songHistory.Exists(r => r.coverTexture == oldest.coverTexture);
+                if (!stillUsed)
+                {
+                    Destroy(oldest.coverTexture);
+                }
+            }
+        }
+
+        RefreshJukeboxHistoryUI();
+    }
+
+    private void RefreshJukeboxHistoryUI()
+    {
+        if (jukeboxPanelObj == null || historySlots.Count == 0) return;
+
+        if (songHistory.Count == 0)
+        {
+            jukeboxPanelObj.SetActive(false);
+            return;
+        }
+
+        PositionJukeboxUnderStats();
+        jukeboxPanelObj.SetActive(true);
+
+        for (int i = 0; i < historySlots.Count; i++)
+        {
+            if (i < songHistory.Count)
+            {
+                PlayedSongRecord rec = songHistory[i];
+                HistorySlotUI slot = historySlots[i];
+
+                slot.rootObj.SetActive(true);
+
+                if (rec.coverTexture != null)
+                {
+                    slot.coverImg.texture = rec.coverTexture;
+                    slot.coverImg.color = Color.white;
+                }
+                else
+                {
+                    slot.coverImg.texture = null;
+                    slot.coverImg.color = new Color(0.22f, 0.14f, 0.42f, 1f);
+                }
+
+                string statusLine = rec.wasWon
+                    ? $"<color=#3DDB84>Odgadnięto w {rec.guessedInSeconds:0.#}s (+{rec.pointsEarned} pkt)</color>"
+                    : "<color=#FF5C5C>Nie odgadnięto</color>";
+
+                slot.infoText.text = $"<size=105%><b>{rec.title}</b></size>\n<size=90%><color=#D0BEFF>♪ {rec.artist}</color></size>\n<size=82%>{statusLine}</size>";
+                slot.borderOutline.effectColor = rec.wasWon
+                    ? new Color(0.24f, 0.86f, 0.52f, 0.85f)
+                    : new Color(0.95f, 0.30f, 0.30f, 0.80f);
+            }
+            else
+            {
+                historySlots[i].rootObj.SetActive(false);
+            }
+        }
+    }
+
+    private void OnHistoryCardClicked(int index)
+    {
+        if (index < 0 || index >= songHistory.Count) return;
+
+        PlayedSongRecord rec = songHistory[index];
+        string url;
+
+        if (rec.trackId > 0)
+        {
+            url = $"https://www.deezer.com/track/{rec.trackId}";
+        }
+        else
+        {
+            string q = UnityWebRequest.EscapeURL($"{rec.artist} {rec.title}");
+            url = $"https://www.deezer.com/search/{q}";
+        }
+
+        Debug.Log($"<color=cyan>[SZAFA GRAJĄCA] Otwieram utwór w przeglądarce: {url}</color>");
+        Application.OpenURL(url);
+    }
+
+    private bool IsTextureUsedInHistory(Texture2D tex)
+    {
+        if (tex == null) return false;
+        for (int i = 0; i < songHistory.Count; i++)
+        {
+            if (songHistory[i].coverTexture == tex) return true;
+        }
+        return false;
     }
 
     private void ApplyPurpleThemeToUI()
@@ -582,9 +889,40 @@ public class MusicPlayer : MonoBehaviour
 
     private void StyleScorePanel(Color borderCol, Color shadowCol)
     {
+        // Sprawdzamy, czy napisy z lewej nie są ucięte przez lewą krawędź ekranu, i w razie potrzeby lekko przesuwamy je w prawo
+        KeepLeftStatsInsideScreen();
+
         StyleSingleStatBadge(scoreText, new Color(0.13f, 0.08f, 0.28f, 0.92f), borderCol, shadowCol);
         StyleSingleStatBadge(streakText, new Color(0.16f, 0.09f, 0.32f, 0.92f), borderCol, shadowCol);
         StyleSingleStatBadge(highScoreText, new Color(0.19f, 0.11f, 0.36f, 0.94f), new Color(0.95f, 0.78f, 0.30f, 0.88f), shadowCol);
+    }
+
+    private void KeepLeftStatsInsideScreen()
+    {
+        TMP_Text[] stats = { scoreText, streakText, highScoreText };
+        Canvas rootCanvas = GetComponentInParent<Canvas>();
+        if (rootCanvas == null) return;
+
+        RectTransform canvasRt = rootCanvas.GetComponent<RectTransform>();
+        Vector3[] canvasCorners = new Vector3[4];
+        canvasRt.GetWorldCorners(canvasCorners);
+        float canvasLeftWorldX = canvasCorners[0].x;
+
+        foreach (TMP_Text t in stats)
+        {
+            if (t == null) continue;
+            Vector3[] textCorners = new Vector3[4];
+            t.rectTransform.GetWorldCorners(textCorners);
+            float textLeftWorldX = textCorners[0].x;
+
+            // Jeśli lewy brzeg tekstu jest zbyt blisko (lub poza) lewą krawędzią ekranu, przesuwamy go do bezpiecznego marginesu
+            float minMarginWorld = 28f * rootCanvas.scaleFactor;
+            if (textLeftWorldX < canvasLeftWorldX + minMarginWorld)
+            {
+                float diff = (canvasLeftWorldX + minMarginWorld) - textLeftWorldX;
+                t.rectTransform.position += new Vector3(diff, 0f, 0f);
+            }
+        }
     }
 
     private void StyleSingleStatBadge(TMP_Text txt, Color bgCol, Color borderCol, Color shadowCol)
@@ -683,6 +1021,7 @@ public class MusicPlayer : MonoBehaviour
 
         if (coverFrameObj == null)
         {
+            // Tworzymy ramkę jako osobną, nadrzędną strukturę
             coverFrameObj = new GameObject("AlbumCoverFrame", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Shadow));
             coverFrameObj.transform.SetParent(coverRt.parent, false);
             coverFrameObj.transform.SetSiblingIndex(coverRt.GetSiblingIndex());
@@ -692,7 +1031,10 @@ public class MusicPlayer : MonoBehaviour
             frameRt.anchorMax = coverRt.anchorMax;
             frameRt.pivot = coverRt.pivot;
             frameRt.anchoredPosition = coverRt.anchoredPosition;
-            frameRt.sizeDelta = coverRt.sizeDelta + new Vector2(12f, 12f);
+            frameRt.localScale = coverRt.localScale;
+
+            // Ramy ramki będą teraz AUTOMATYCZNIE o 14 pikseli większe z każdej strony niż okładka!
+            frameRt.sizeDelta = coverRt.sizeDelta + new Vector2(14f, 14f);
 
             Image frameImg = coverFrameObj.GetComponent<Image>();
             frameImg.color = new Color(0.12f, 0.07f, 0.26f, 0.96f);
@@ -700,12 +1042,15 @@ public class MusicPlayer : MonoBehaviour
 
             AddOrUpdateOutlineAndShadow(coverFrameObj, borderCol, shadowCol);
 
+            // Wrzucamy okładkę do środka ramki, żeby była idealnie wyśśrodkowana
             coverRt.SetParent(frameRt, true);
             coverRt.anchorMin = new Vector2(0.5f, 0.5f);
             coverRt.anchorMax = new Vector2(0.5f, 0.5f);
             coverRt.pivot = new Vector2(0.5f, 0.5f);
             coverRt.anchoredPosition = Vector2.zero;
+            coverRt.localScale = Vector3.one;
 
+            // Pytajnik "?" na środku okładki
             GameObject qObj = new GameObject("MysteryQuestionMark", typeof(RectTransform), typeof(TextMeshProUGUI));
             qObj.transform.SetParent(coverRt, false);
 
@@ -724,17 +1069,24 @@ public class MusicPlayer : MonoBehaviour
             coverMysteryQuestionText.raycastTarget = false;
             SharpenSingleTMP(coverMysteryQuestionText);
 
+            // PRZYPIĘCIE NAPISU POD RAMKĄ: Napis jest teraz dzieckiem ramki i zawsze trzyma się 14 pikseli pod nią!
             if (songTitleDisplay != null)
             {
                 RectTransform titleRt = songTitleDisplay.rectTransform;
                 titleRt.SetParent(frameRt, false);
-                titleRt.anchorMin = new Vector2(0.5f, 0f);
+                titleRt.anchorMin = new Vector2(0.5f, 0f); // Kotwica na dolnej krawędzi ramki
                 titleRt.anchorMax = new Vector2(0.5f, 0f);
-                titleRt.pivot = new Vector2(0.5f, 1f);
-                titleRt.anchoredPosition = new Vector2(0f, -10f);
-                titleRt.sizeDelta = new Vector2(Mathf.Max(frameRt.rect.width + 60f, 240f), 90f);
+                titleRt.pivot = new Vector2(0.5f, 1f);    // Pivot na górnej krawędzi napisu
+                titleRt.anchoredPosition = new Vector2(0f, -14f); // Zawsze dokładnie 14 px odstępu pod ramką
+                titleRt.sizeDelta = new Vector2(Mathf.Max(frameRt.rect.width + 100f, 300f), 90f);
                 songTitleDisplay.alignment = TextAlignmentOptions.Top;
             }
+        }
+        else
+        {
+            // Jeśli ramka już istnieje, aktualizujemy jej rozmiar na wypadek, gdyby okładka zmieniła się w trakcie gry
+            RectTransform frameRt = coverFrameObj.GetComponent<RectTransform>();
+            frameRt.sizeDelta = coverRt.sizeDelta + new Vector2(14f, 14f);
         }
 
         coverFrameObj.SetActive(true);
@@ -1370,6 +1722,7 @@ public class MusicPlayer : MonoBehaviour
                 continue;
             }
 
+            currentTrackId = randomTrack.id;
             rawArtistName = randomTrack.artist != null ? randomTrack.artist.name : "Nieznany";
             rawSongTitle = randomTrack.title != null ? Regex.Replace(randomTrack.title, @"\s*\(.*?\)", "").Trim() : "Nieznany";
             correctAnswer = $"<size=110%><b>{rawSongTitle}</b></size>\n<size=85%><color=#D8C8FF>♪ {rawArtistName}</color></size>";
@@ -1472,8 +1825,17 @@ public class MusicPlayer : MonoBehaviour
                 Texture2D tex = DownloadHandlerTexture.GetContent(www);
                 if (albumCover != null && tex != null)
                 {
-                    if (currentFullCoverTex != null) Destroy(currentFullCoverTex);
+                    if (currentFullCoverTex != null && !IsTextureUsedInHistory(currentFullCoverTex))
+                    {
+                        Destroy(currentFullCoverTex);
+                    }
                     currentFullCoverTex = tex;
+
+                    if ((won || lost) && songHistory.Count > 0 && songHistory[0].trackId == currentTrackId)
+                    {
+                        songHistory[0].coverTexture = currentFullCoverTex;
+                        RefreshJukeboxHistoryUI();
+                    }
 
                     if (won || lost)
                     {
@@ -1633,6 +1995,7 @@ public class MusicPlayer : MonoBehaviour
             ShowFeedback("KONIEC SZANS! Nie udało się odgadnąć.", wrongColor, false);
             ShakeBackground();
             RevealAnswerAndCover(false);
+            RecordCurrentSongToHistory(false, 0);
 
             if (playRoutine != null) StopCoroutine(playRoutine);
             playRoutine = StartCoroutine(PlayFullSnippetOnEnd());
@@ -1699,6 +2062,7 @@ public class MusicPlayer : MonoBehaviour
             UpdateScoreUI();
             ShowFeedback($"BRAWO! +{pointsEarned} PKT!", correctColor, true);
             RevealAnswerAndCover(true);
+            RecordCurrentSongToHistory(true, pointsEarned);
 
             if (playRoutine != null) StopCoroutine(playRoutine);
             playRoutine = StartCoroutine(PlayFullSnippetOnEnd());
@@ -1769,6 +2133,7 @@ public class MusicPlayer : MonoBehaviour
                 ShowFeedback("KONIEC SZANS! Nie udało się odgadnąć.", wrongColor, false);
                 ShakeBackground();
                 RevealAnswerAndCover(false);
+                RecordCurrentSongToHistory(false, 0);
 
                 if (playRoutine != null) StopCoroutine(playRoutine);
                 playRoutine = StartCoroutine(PlayFullSnippetOnEnd());
@@ -1810,6 +2175,8 @@ public class MusicPlayer : MonoBehaviour
             highScoreText.text = $"<color=#FFE066>REKORD:</color> <color=#FFE066><b>{highScore}</b></color>";
             RefreshStatBadgeSize(highScoreText);
         }
+
+        PositionJukeboxUnderStats();
     }
 
     private int GetLevenshteinDistance(string s, string t)
@@ -2138,11 +2505,12 @@ public class MusicPlayer : MonoBehaviour
         SetupBars();
         UpdateProgress(0f);
 
-        if (currentFullCoverTex != null)
+        if (currentFullCoverTex != null && !IsTextureUsedInHistory(currentFullCoverTex))
         {
             Destroy(currentFullCoverTex);
-            currentFullCoverTex = null;
         }
+        currentFullCoverTex = null;
+
         if (currentPixelatedCoverTex != null)
         {
             Destroy(currentPixelatedCoverTex);
